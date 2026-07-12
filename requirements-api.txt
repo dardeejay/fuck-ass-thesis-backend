@@ -1,0 +1,11 @@
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+pandas==2.3.3
+numpy==2.0.2
+scikit-learn==1.6.1
+httpx==0.28.1
+beautifulsoup4==4.15.0
+python-dotenv==1.2.1
+sqlalchemy==2.0.51
+psycopg2-binary==2.9.12
+apscheduler==3.11.3
