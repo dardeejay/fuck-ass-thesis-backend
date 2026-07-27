@@ -19,6 +19,8 @@ load_dotenv()
 
 from app import db, history, labels as labels_module, ml_model, scheduler  # noqa: E402
 from app.schemas import (  # noqa: E402
+    ForecastResponse,
+    ForecastStepResponse,
     HeatIndexResponse,
     LabelCreateRequest,
     LabelResponse,
@@ -34,7 +36,7 @@ from app.schemas import (  # noqa: E402
     TcwsStatusResponse,
 )
 from app.heat_index import classify_heat_index, compute_heat_index, suspension_note as heat_suspension_note  # noqa: E402
-from app.weather_openweather import fetch_live_conditions  # noqa: E402
+from app.weather_openweather import fetch_forecast, fetch_live_conditions  # noqa: E402
 from app.weather_pagasa import fetch_pagasa_warning  # noqa: E402
 from app.weather_tcws import automatic_suspension_note, fetch_tcws_status  # noqa: E402
 from app.climatology import climatology_for_month  # noqa: E402
@@ -185,6 +187,52 @@ def create_live_prediction(month: Optional[int] = None):
             rainfall=rainfall, tmax=tmax, tmin=tmin, rh=rh, wind_speed=wind_speed, month=month,
         ),
         sources=LiveConditionsSource(rainfall_source=rainfall_source, weather_source=weather_source),
+    )
+
+
+@app.get("/v1/predictions/forecast", response_model=ForecastResponse)
+def get_forecast_predictions():
+    """Upcoming-hours strip: runs each 3-hour OpenWeatherMap forecast step
+    through the same model as /v1/predictions/live. The model was validated
+    on daily aggregates, not sub-daily steps — see ForecastResponse.source."""
+    try:
+        steps = fetch_forecast()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach OpenWeatherMap: {exc}")
+
+    if steps is None:
+        raise HTTPException(status_code=503, detail="OPENWEATHER_API_KEY not configured; forecast unavailable")
+
+    results = []
+    for step in steps:
+        prediction = ml_model.predict(
+            rainfall=step.rainfall_mm, tmax=step.tmax, tmin=step.tmin, rh=step.rh,
+            wind_speed=step.wind_speed, month=step.timestamp.month,
+        )
+        results.append(ForecastStepResponse(
+            timestamp=step.timestamp,
+            tmax=step.tmax,
+            tmin=step.tmin,
+            rh=step.rh,
+            wind_speed=step.wind_speed,
+            rainfall=step.rainfall_mm,
+            weather_id=step.weather_id,
+            weather_main=step.weather_main,
+            probability=prediction.probability,
+            risk_level=prediction.risk_level,
+            recommendation=prediction.recommendation,
+        ))
+
+    return ForecastResponse(
+        model_name=ml_model.MODEL_NAME,
+        generated_at=datetime.datetime.utcnow(),
+        source=(
+            "openweathermap-forecast, 3-hour steps; rainfall is OWM's own forecast "
+            "(no PAGASA forecast exists) and the model was validated on daily "
+            "conditions — treat these per-step suggestions as indicative, not a "
+            "substitute for the daily recommendation above."
+        ),
+        steps=results,
     )
 
 

@@ -10,11 +10,13 @@ to app.climatology.
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
 import httpx
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
+OPENWEATHER_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 OLONGAPO_COORDS = {"lat": 14.8292, "lon": 120.2828}
 
 
@@ -24,6 +26,18 @@ class LiveConditions:
     tmin: float
     rh: float
     wind_speed: float
+
+
+@dataclass
+class ForecastStep:
+    timestamp: datetime  # UTC
+    tmax: float
+    tmin: float
+    rh: float
+    wind_speed: float
+    rainfall_mm: float
+    weather_id: int
+    weather_main: str
 
 
 def openweather_api_key() -> Optional[str]:
@@ -54,3 +68,41 @@ def fetch_live_conditions(timeout: float = 10.0) -> Optional[LiveConditions]:
         rh=main["humidity"],
         wind_speed=data.get("wind", {}).get("speed", 0.0),
     )
+
+
+def fetch_forecast(timeout: float = 10.0) -> Optional[List[ForecastStep]]:
+    """5-day/3-hour-step forecast for the dashboard's upcoming-hours strip.
+    Unlike fetch_live_conditions() above, rainfall here comes straight from
+    OpenWeatherMap's own forecast (rain."3h"), not PAGASA — PAGASA only
+    publishes a current bulletin, there's no forecast API for it. So this
+    forecast's rainfall figures are less trustworthy than the "live" endpoint's
+    (which prefers PAGASA), by design of what data actually exists."""
+    api_key = openweather_api_key()
+    if not api_key:
+        return None
+
+    resp = httpx.get(
+        OPENWEATHER_FORECAST_URL,
+        params={**OLONGAPO_COORDS, "appid": api_key, "units": "metric"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    steps = []
+    for entry in data.get("list", []):
+        main = entry["main"]
+        weather = (entry.get("weather") or [{}])[0]
+        steps.append(
+            ForecastStep(
+                timestamp=datetime.utcfromtimestamp(entry["dt"]),
+                tmax=main.get("temp_max", main["temp"]),
+                tmin=main.get("temp_min", main["temp"]),
+                rh=main["humidity"],
+                wind_speed=entry.get("wind", {}).get("speed", 0.0),
+                rainfall_mm=entry.get("rain", {}).get("3h", 0.0),
+                weather_id=weather.get("id", 800),
+                weather_main=weather.get("main", "Clear"),
+            )
+        )
+    return steps

@@ -145,3 +145,26 @@ class ModelVersionResponse(BaseModel):
 
 class PromoteRequest(BaseModel):
     promoted_by: Optional[str] = None
+
+
+class ForecastStepResponse(BaseModel):
+    timestamp: datetime  # UTC
+    tmax: float
+    tmin: float
+    rh: float
+    wind_speed: float
+    rainfall: float
+    weather_id: int
+    weather_main: str
+    probability: float
+    risk_level: str  # "low" | "moderate" | "high"
+    recommendation: str
+
+
+class ForecastResponse(BaseModel):
+    model_name: str
+    generated_at: datetime
+    # Deliberately verbose: this is the one place callers are told the model
+    # was validated at daily granularity, not the 3-hour steps used here.
+    source: str
+    steps: List[ForecastStepResponse]
