@@ -1,4 +1,33 @@
 Date,Date Posted,Time Posted,Rainfall Level,Forecast Risk,Time Risk,Suspension Decision,Pre-School,Elementary,High School,College
+7/10/26,7/10/26,5:11 AM,Yellow Warning,,Whole Day,1,1,1,1,1
+7/13/26,7/12/26,9:19 PM,,,Whole Day,1,1,1,1,1
+8/4/26,8/4/26,5:25 AM,,,Whole Day,1,1,1,1,1
+8/5/26,8/4/26,11:21 PM,Yellow Warning,,Whole Day,1,1,1,1,1
+8/6/26,8/5/26,11:07 PM,,,Whole Day,1,1,1,1,1
+8/7/26,8/6/26,11:11 PM,,,Whole Day,1,1,1,1,1
+8/8/26,8/7/26,11:23 PM,Orange Warning,,Whole Day,1,1,1,1,1
+8/10/26,8/9/26,11:16 PM,,,Whole Day,1,1,1,1,1
+8/11/26,8/10/26,11:10 PM,Orange Warning,,Whole Day,1,1,1,1,1
+8/13/26,8/13/26,5:15 AM,,,Whole Day,1,1,1,1,0
+8/14/26,8/14/26,5:11 AM,,,Whole Day,1,1,1,1,1
+8/17/26,8/17/26,5:08 AM,,,Whole Day,1,1,1,1,1
+8/18/26,8/17/26,6:45 PM,,,Whole Day,1,1,1,1,1
+8/19/26,8/18/26,8:19 PM,,,Whole Day,1,1,1,1,1
+8/20/26,8/19/26,8:01 PM,,,Whole Day,1,1,1,1,1
+8/25/26,8/25/26,11:33 AM,,,Afternoon Suspension,1,1,1,1,1
+8/26/26,8/26/26,5:14 AM,,,Whole Day,1,1,1,1,1
+8/28/26,8/27/26,11:16 PM,,,Whole Day,1,1,1,1,1
+8/29/26,8/28/26,11:27 PM,,,Whole Day,1,1,1,1,1
+9/1/26,8/31/26,6:47 PM,,,Whole Day,1,1,1,1,1
+9/2/26,9/1/26,11:12 PM,,,Whole Day,1,1,1,1,1
+9/3/26,9/2/26,11:11 PM,,,Whole Day,1,1,1,1,1
+9/4/26,9/3/26,11:34 PM,,,Whole Day,1,1,1,1,1
+9/5/26,9/5/26,12:07 AM,,,Whole Day,1,1,1,1,1
+9/7/26,9/7/26,11:19 AM,Orange Warning,,Afternoon Suspension,1,1,1,1,1
+9/8/26,9/7/26,11:19 PM,,,Whole Day,1,1,1,1,1
+9/9/26,9/8/26,11:16 PM,,,Whole Day,1,1,1,1,1
+9/10/26,9/9/26,11:30 PM,,,Whole Day,1,1,1,1,1
+9/11/26,9/11/26,5:18 AM,Orange Warning,,Whole Day,1,1,1,1,1
 7/3/25,7/3/25,9:24 AM,Heavy Rain ,High Risk ,12NN onwards,1,,,,
 7/18/25,7/18/25,11:23 AM,Yellow Warning,Moderate Risk ,12NN onwards,1,,,,
 7/19/25,7/19/25,4:29 AM,Heavy Rain ,High Risk,Whole day,1,,,,
