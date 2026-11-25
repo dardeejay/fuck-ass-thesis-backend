@@ -54,13 +54,18 @@ def _db_labels_to_frame(session, only_included: bool) -> pd.DataFrame:
     return df
 
 
-def _build_dataset(only_included: bool) -> pd.DataFrame:
+def csv_training_data() -> pd.DataFrame:
+    """The historical 2023-2024 dataset alone, with true rolling rain sums."""
     weather = sm.load_weather()
     suspensions = sm.load_suspensions()
     csv_dataset, _, _, _ = sm.build_labeled_dataset(
         weather, suspensions, start="2023-01-01", end="2024-12-31"
     )
-    csv_features = sm.build_features(csv_dataset)[_ALL_COLS]
+    return sm.build_features(csv_dataset)[_ALL_COLS]
+
+
+def _build_dataset(only_included: bool) -> pd.DataFrame:
+    csv_features = csv_training_data()
 
     session = get_session()
     try:

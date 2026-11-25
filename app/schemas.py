@@ -44,8 +44,9 @@ class PagasaWarningResponse(BaseModel):
 
 
 class LiveConditionsSource(BaseModel):
-    rainfall_source: str  # "pagasa" | "pagasa-fallback"
+    rainfall_source: str  # "pagasa" | "open-meteo-observed" | "pagasa-fallback"
     weather_source: str   # "openweathermap" | "climatology-fallback"
+    rain_history_source: str  # "open-meteo" | "unavailable" (3-day/7-day sums)
 
 
 class TcwsStatusResponse(BaseModel):
@@ -153,7 +154,9 @@ class ForecastStepResponse(BaseModel):
     tmin: float
     rh: float
     wind_speed: float
-    rainfall: float
+    rainfall: float  # this step's own 3-hour amount
+    rain_24h: float  # trailing totals the model was scored on
+    rain_3day_sum: float
     weather_id: int
     weather_main: str
     probability: float
@@ -168,3 +171,20 @@ class ForecastResponse(BaseModel):
     # was validated at daily granularity, not the 3-hour steps used here.
     source: str
     steps: List[ForecastStepResponse]
+
+
+class ReplayPrediction(BaseModel):
+    probability: float
+    risk_level: str  # "low" | "moderate" | "high"
+    recommendation: str
+
+
+class ReplayDay(BaseModel):
+    date: date
+    conditions: PredictionRequest  # the day's recorded weather, as the model sees it
+
+
+class ReplayResponse(ReplayDay):
+    actually_suspended: bool
+    live_model: ReplayPrediction  # trained on this day
+    held_out: ReplayPrediction    # refit without this day (one leave-one-out fold)

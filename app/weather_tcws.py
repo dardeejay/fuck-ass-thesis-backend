@@ -67,7 +67,7 @@ def parse_tcws_html(html: str, location_keywords=("Olongapo", "Zambales")) -> Tc
     return TcwsStatus(best_signal, best_areas)
 
 
-def fetch_tcws_status(location_keywords=("Olongapo", "Zambales"), timeout: float = 10.0) -> TcwsStatus:
+def fetch_tcws_status(location_keywords=("Olongapo", "Zambales"), timeout: float = 4.0) -> TcwsStatus:
     resp = httpx.get(TCWS_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
     resp.raise_for_status()
     return parse_tcws_html(resp.text, location_keywords)

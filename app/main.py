@@ -8,6 +8,7 @@ Run locally:
 
 import datetime
 import os
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -17,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from app import db, history, labels as labels_module, ml_model, scheduler  # noqa: E402
+from app import db, history, labels as labels_module, ml_model, replay, scheduler  # noqa: E402
 from app.schemas import (  # noqa: E402
     ForecastResponse,
     ForecastStepResponse,
@@ -32,12 +33,15 @@ from app.schemas import (  # noqa: E402
     PredictionRequest,
     PredictionResponse,
     PromoteRequest,
+    ReplayDay,
+    ReplayResponse,
     SuspensionRecord,
     TcwsStatusResponse,
 )
 from app.heat_index import classify_heat_index, compute_heat_index, suspension_note as heat_suspension_note  # noqa: E402
 from app.weather_openweather import fetch_forecast, fetch_live_conditions  # noqa: E402
-from app.weather_pagasa import fetch_pagasa_warning  # noqa: E402
+from app.weather_pagasa import LEVEL_TO_RAINFALL_MM, fetch_pagasa_warning  # noqa: E402
+from app.rain_history import fetch_observed_hourly_rain, rain_between, trailing_sums  # noqa: E402
 from app.weather_tcws import automatic_suspension_note, fetch_tcws_status  # noqa: E402
 from app.climatology import climatology_for_month  # noqa: E402
 
@@ -68,6 +72,14 @@ app.add_middleware(
 
 def _feature_importance_list():
     return [{"feature": k, "importance": float(v)} for k, v in ml_model.feature_importance().items()]
+
+
+def _or_none(fetch):
+    """Run an optional upstream fetch; any failure just means "no data"."""
+    try:
+        return fetch()
+    except Exception:
+        return None
 
 
 def _heat_index_response(tmax: float, rh: float) -> HeatIndexResponse:
@@ -132,25 +144,36 @@ def get_tcws_status():
 def create_live_prediction(month: Optional[int] = None):
     month = month or datetime.date.today().month
 
-    try:
-        warning = fetch_pagasa_warning()
+    # Independent upstreams, fetched concurrently so a slow site costs one
+    # timeout rather than the sum of them.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        warning_f = pool.submit(_or_none, fetch_pagasa_warning)
+        tcws_f = pool.submit(_or_none, fetch_tcws_status)
+        live_f = pool.submit(_or_none, fetch_live_conditions)
+        observed_f = pool.submit(_or_none, fetch_observed_hourly_rain)
+    warning, tcws, live, observed = warning_f.result(), tcws_f.result(), live_f.result(), observed_f.result()
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if warning is not None:
+        rainfall = warning.rainfall_mm_estimate
         rainfall_source = "pagasa"
-    except Exception:
-        warning = None
+    elif observed is not None:
+        rainfall = rain_between(observed, now - datetime.timedelta(hours=24), now)
+        rainfall_source = "open-meteo-observed"
+    else:
+        rainfall = LEVEL_TO_RAINFALL_MM[None]
         rainfall_source = "pagasa-fallback"
 
-    rainfall = warning.rainfall_mm_estimate if warning else 5.0
-
-    try:
-        tcws = fetch_tcws_status()
-    except Exception:
-        tcws = None
-
-    live = None
-    try:
-        live = fetch_live_conditions()
-    except Exception:
-        live = None
+    # Today's rainfall plus the observed rain of the days before it — the
+    # model's most important feature is this accumulated total.
+    if observed is not None:
+        day_start = now - datetime.timedelta(hours=24)
+        rain_3day_sum = round(rainfall + rain_between(observed, now - datetime.timedelta(hours=72), day_start), 1)
+        rain_7day_sum = round(rainfall + rain_between(observed, now - datetime.timedelta(hours=168), day_start), 1)
+        rain_history_source = "open-meteo"
+    else:
+        rain_3day_sum = rain_7day_sum = None  # model falls back to today's rainfall
+        rain_history_source = "unavailable"
 
     if live is not None:
         tmax, tmin, rh, wind_speed = live.tmax, live.tmin, live.rh, live.wind_speed
@@ -162,6 +185,7 @@ def create_live_prediction(month: Optional[int] = None):
 
     result = ml_model.predict(
         rainfall=rainfall, tmax=tmax, tmin=tmin, rh=rh, wind_speed=wind_speed, month=month,
+        rain_3day_sum=rain_3day_sum, rain_7day_sum=rain_7day_sum,
     )
 
     return LivePredictionResponse(
@@ -185,29 +209,48 @@ def create_live_prediction(month: Optional[int] = None):
         ),
         conditions_used=PredictionRequest(
             rainfall=rainfall, tmax=tmax, tmin=tmin, rh=rh, wind_speed=wind_speed, month=month,
+            rain_3day_sum=rain_3day_sum, rain_7day_sum=rain_7day_sum,
         ),
-        sources=LiveConditionsSource(rainfall_source=rainfall_source, weather_source=weather_source),
+        sources=LiveConditionsSource(
+            rainfall_source=rainfall_source,
+            weather_source=weather_source,
+            rain_history_source=rain_history_source,
+        ),
     )
 
 
 @app.get("/v1/predictions/forecast", response_model=ForecastResponse)
 def get_forecast_predictions():
     """Upcoming-hours strip: runs each 3-hour OpenWeatherMap forecast step
-    through the same model as /v1/predictions/live. The model was validated
-    on daily aggregates, not sub-daily steps — see ForecastResponse.source."""
+    through the same model as /v1/predictions/live. The model was trained on
+    daily totals, so each step is scored on the trailing 24h / 72h / 168h rain
+    ending at that step (observed hours from Open-Meteo, then forecast steps),
+    not on the step's own 3-hour amount. See ForecastResponse.source."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        steps_f = pool.submit(fetch_forecast)
+        observed_f = pool.submit(_or_none, fetch_observed_hourly_rain)
     try:
-        steps = fetch_forecast()
+        steps = steps_f.result()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not reach OpenWeatherMap: {exc}")
 
     if steps is None:
         raise HTTPException(status_code=503, detail="OPENWEATHER_API_KEY not configured; forecast unavailable")
 
+    observed = observed_f.result()
+    # Each OWM step's rain.3h fell in the 3 hours ending at its timestamp;
+    # observed hours only fill the time before the first step's period.
+    forecast_events = [(step.timestamp, step.rainfall_mm) for step in steps]
+    forecast_start = steps[0].timestamp - datetime.timedelta(hours=3) if steps else None
+    events = [e for e in (observed or []) if forecast_start is None or e[0] <= forecast_start] + forecast_events
+
     results = []
     for step in steps:
+        rain_24h, rain_3day_sum, rain_7day_sum = trailing_sums(events, step.timestamp)
         prediction = ml_model.predict(
-            rainfall=step.rainfall_mm, tmax=step.tmax, tmin=step.tmin, rh=step.rh,
+            rainfall=rain_24h, tmax=step.tmax, tmin=step.tmin, rh=step.rh,
             wind_speed=step.wind_speed, month=step.timestamp.month,
+            rain_3day_sum=rain_3day_sum, rain_7day_sum=rain_7day_sum,
         )
         results.append(ForecastStepResponse(
             timestamp=step.timestamp,
@@ -216,6 +259,8 @@ def get_forecast_predictions():
             rh=step.rh,
             wind_speed=step.wind_speed,
             rainfall=step.rainfall_mm,
+            rain_24h=rain_24h,
+            rain_3day_sum=rain_3day_sum,
             weather_id=step.weather_id,
             weather_main=step.weather_main,
             probability=prediction.probability,
@@ -223,12 +268,18 @@ def get_forecast_predictions():
             recommendation=prediction.recommendation,
         ))
 
+    history_note = (
+        "rain before the forecast window is Open-Meteo's observed hourly precipitation"
+        if observed is not None
+        else "observed rain history was unavailable, so early steps under-count the past days' rain"
+    )
     return ForecastResponse(
         model_name=ml_model.MODEL_NAME,
-        generated_at=datetime.datetime.utcnow(),
+        generated_at=datetime.datetime.now(datetime.timezone.utc),
         source=(
-            "openweathermap-forecast, 3-hour steps; rainfall is OWM's own forecast "
-            "(no PAGASA forecast exists) and the model was validated on daily "
+            "openweathermap-forecast, 3-hour steps; each step is scored on the trailing "
+            f"24h/3-day/7-day rain ending at that step ({history_note}). Rainfall is OWM's "
+            "own forecast (no PAGASA forecast exists) and the model was validated on daily "
             "conditions — treat these per-step suggestions as indicative, not a "
             "substitute for the daily recommendation above."
         ),
@@ -239,6 +290,20 @@ def get_forecast_predictions():
 @app.get("/v1/history/suspensions", response_model=List[SuspensionRecord])
 def get_suspension_history():
     return history.list_suspensions()
+
+
+@app.get("/v1/replay/days", response_model=List[ReplayDay])
+def list_replay_days():
+    """Real 2023-2024 suspension days available to replay in the simulator."""
+    return replay.list_days()
+
+
+@app.get("/v1/replay/{day}", response_model=ReplayResponse)
+def replay_day(day: datetime.date):
+    result = replay.replay(day)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"{day} is not a recorded suspension day")
+    return result
 
 
 @app.get("/v1/model/metrics", response_model=ModelMetrics)

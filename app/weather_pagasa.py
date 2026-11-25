@@ -80,7 +80,7 @@ def parse_pagasa_html(html: str, location_keywords=("Olongapo", "Zambales")) -> 
     return PagasaWarning(None, LEVEL_TO_RAINFALL_MM[None], None, bulletin_title, issued_at)
 
 
-def fetch_pagasa_warning(location_keywords=("Olongapo", "Zambales"), timeout: float = 10.0) -> PagasaWarning:
+def fetch_pagasa_warning(location_keywords=("Olongapo", "Zambales"), timeout: float = 4.0) -> PagasaWarning:
     resp = httpx.get(PAGASA_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
     resp.raise_for_status()
     return parse_pagasa_html(resp.text, location_keywords)

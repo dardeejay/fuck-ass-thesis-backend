@@ -45,15 +45,22 @@ class Prediction:
     recommendation: str
 
 
+def _fit(features: pd.DataFrame):
+    model = sm.REGULARIZED_MODEL_FACTORIES[MODEL_NAME](random_state=42)
+    model.fit(features[sm.FEATURE_COLS], features["SUSPENDED"])
+    return model
+
+
 @lru_cache(maxsize=1)
 def get_model():
-    features = training_data.live_training_data()
-    X = features[sm.FEATURE_COLS]
-    y = features["SUSPENDED"]
+    return _fit(training_data.live_training_data())
 
-    model = sm.REGULARIZED_MODEL_FACTORIES[MODEL_NAME](random_state=42)
-    model.fit(X, y)
-    return model
+
+def held_out_model(exclude_date: pd.Timestamp):
+    """The live model's recipe, refit without one day — what the model would
+    say about that day had it never seen it (one leave-one-out fold)."""
+    features = training_data.live_training_data()
+    return _fit(features[features["DATE"] != exclude_date])
 
 
 def predict(
@@ -65,8 +72,9 @@ def predict(
     month: int,
     rain_3day_sum: Optional[float] = None,
     rain_7day_sum: Optional[float] = None,
+    model=None,
 ) -> Prediction:
-    model = get_model()
+    model = model if model is not None else get_model()
     label, proba = sm.suggest_suspension(
         model, rainfall=rainfall, tmax=tmax, tmin=tmin, rh=rh,
         wind_speed=wind_speed, month=month,

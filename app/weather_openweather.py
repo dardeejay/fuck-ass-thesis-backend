@@ -10,7 +10,7 @@ to app.climatology.
 
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import httpx
@@ -30,7 +30,7 @@ class LiveConditions:
 
 @dataclass
 class ForecastStep:
-    timestamp: datetime  # UTC
+    timestamp: datetime  # UTC-aware
     tmax: float
     tmin: float
     rh: float
@@ -44,7 +44,7 @@ def openweather_api_key() -> Optional[str]:
     return os.environ.get("OPENWEATHER_API_KEY")
 
 
-def fetch_live_conditions(timeout: float = 10.0) -> Optional[LiveConditions]:
+def fetch_live_conditions(timeout: float = 4.0) -> Optional[LiveConditions]:
     api_key = openweather_api_key()
     if not api_key:
         return None
@@ -70,7 +70,7 @@ def fetch_live_conditions(timeout: float = 10.0) -> Optional[LiveConditions]:
     )
 
 
-def fetch_forecast(timeout: float = 10.0) -> Optional[List[ForecastStep]]:
+def fetch_forecast(timeout: float = 4.0) -> Optional[List[ForecastStep]]:
     """5-day/3-hour-step forecast for the dashboard's upcoming-hours strip.
     Unlike fetch_live_conditions() above, rainfall here comes straight from
     OpenWeatherMap's own forecast (rain."3h"), not PAGASA — PAGASA only
@@ -95,7 +95,7 @@ def fetch_forecast(timeout: float = 10.0) -> Optional[List[ForecastStep]]:
         weather = (entry.get("weather") or [{}])[0]
         steps.append(
             ForecastStep(
-                timestamp=datetime.utcfromtimestamp(entry["dt"]),
+                timestamp=datetime.fromtimestamp(entry["dt"], tz=timezone.utc),
                 tmax=main.get("temp_max", main["temp"]),
                 tmin=main.get("temp_min", main["temp"]),
                 rh=main["humidity"],
