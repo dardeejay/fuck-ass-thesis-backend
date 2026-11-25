@@ -24,8 +24,8 @@ Labeling strategy (see build_labeled_dataset):
     matching weather data for them yet. Add 2025 Cubi Point data to
     unlock that period.
 
-This is a small, heavily imbalanced dataset (~40 positive days out of
-~570 in the usable window), so treat metrics as a rough benchmark, not
+This is a small, heavily imbalanced dataset (24 positive days out of
+731 in the usable window), so treat metrics as a rough benchmark, not
 a production-grade result.
 """
 
@@ -337,7 +337,7 @@ if __name__ == "__main__":
 
     model, metrics, (X_test, y_test, y_pred) = train_random_forest(features)
 
-    print("\n=== Random Forest performance (held-out test split) ===")
+    print("\n=== Random Forest (default, unconstrained) — held-out test split ===")
     print(f"Accuracy:  {metrics['accuracy']:.3f}")
     print(f"Precision: {metrics['precision']:.3f}")
     print(f"Recall:    {metrics['recall']:.3f}")
@@ -347,30 +347,34 @@ if __name__ == "__main__":
     print("\nFull report:")
     print(metrics["report"])
 
-    print("=== Feature importances ===")
+    print("=== Feature importances (default, unconstrained RF) ===")
     print(feature_importance(model))
 
+    all_models = {**MODEL_FACTORIES, **REGULARIZED_MODEL_FACTORIES}
+
     print("\n=== Train vs. test scores (overfitting check) ===")
-    diag = train_vs_test_diagnostic(features)
+    diag = train_vs_test_diagnostic(features, model_factories=all_models)
     print(diag.to_string(index=False))
 
-    print("\n=== 5-fold stratified cross-validation (RF vs. LogReg vs. GBoost) ===")
-    cv = cross_validate_models(features)
+    print("\n=== 5-fold stratified cross-validation (default vs. regularized) ===")
+    cv = cross_validate_models(features, model_factories=all_models)
     print(cv[["model", "accuracy_mean", "precision_mean", "recall_mean", "f1_mean",
               "precision_std", "recall_std"]].to_string(index=False))
-
-    all_models = {**MODEL_FACTORIES, **REGULARIZED_MODEL_FACTORIES}
 
     print("\n=== Leave-one-out CV: default vs. depth/leaf-regularized trees ===")
     loo = leave_one_out_cv(features, model_factories=all_models)
     print(loo.to_string(index=False))
 
-    print("\n=== Example suggestions ===")
+    # Examples use the model the API serves: regularized RF fit on all labeled days.
+    served_model = REGULARIZED_MODEL_FACTORIES["Random Forest (regularized)"](random_state=42)
+    served_model.fit(features[FEATURE_COLS], features["SUSPENDED"])
+
+    print("\n=== Example suggestions (regularized RF, as served) ===")
     examples = [
         dict(rainfall=150, tmax=28, tmin=24, rh=92, wind_speed=6, month=8, rain_3day_sum=300, rain_7day_sum=400),
         dict(rainfall=5, tmax=31, tmin=23, rh=60, wind_speed=4, month=3, rain_3day_sum=5, rain_7day_sum=10),
         dict(rainfall=40, tmax=28, tmin=24, rh=85, wind_speed=5, month=9, rain_3day_sum=70, rain_7day_sum=90),
     ]
     for ex in examples:
-        label, proba = suggest_suspension(model, **ex)
+        label, proba = suggest_suspension(served_model, **ex)
         print(f"{ex} -> {label} (p={proba:.2f})")

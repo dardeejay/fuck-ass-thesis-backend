@@ -3,13 +3,13 @@ Scrapes PAGASA's Tropical Cyclone Wind Signal (TCWS) bulletin — a second,
 separate warning system from the rainfall warnings in weather_pagasa.py.
 
 This matters because TCWS triggers AUTOMATIC, non-discretionary class
-suspension per DepEd/NDRRMC policy, independent of rainfall:
-  - Signal No. 1: pre-school automatically suspended; other levels at
-    LGU/school discretion.
-  - Signal No. 2: pre-school and elementary automatically suspended.
-  - Signal No. 3+: all levels automatically suspended.
-(Verify the exact current DepEd Order wording before citing — these
-thresholds have been revised before and may be revised again.)
+cancellation, independent of rainfall. Per DepEd Order No. 37, s. 2022
+(Enclosure, Sec. IV.1 "Typhoon"), in-person and online classes and work from
+Kindergarten to Grade 12 and ALS are automatically cancelled in LGUs under
+TCWS 1, 2, 3, 4, or 5 — the same rule for every signal level. College
+classes are outside DepEd's scope (SUCs/LUCs may opt to follow the Order),
+so the note points to CHED/school announcements for those.
+Source: https://www.deped.gov.ph/wp-content/uploads/2022/09/DO_s2022_037.pdf
 
 The suspension_model.py training data contains ZERO signal-driven examples
 (every scraped historical record was rainfall/advisory-driven), so this is
@@ -73,19 +73,18 @@ def fetch_tcws_status(location_keywords=("Olongapo", "Zambales"), timeout: float
     return parse_tcws_html(resp.text, location_keywords)
 
 
-# DepEd/NDRRMC automatic-suspension tiers by signal number — verify current
-# wording before citing in the paper; presented here as a policy note, not
-# an ML-derived probability.
-AUTOMATIC_SUSPENSION_NOTE = {
-    1: "Signal No. 1 in effect: pre-school automatically suspended; other levels typically at LGU/school discretion.",
-    2: "Signal No. 2 in effect: pre-school and elementary automatically suspended per DepEd policy.",
-    3: "Signal No. 3 in effect: all levels automatically suspended per DepEd/NDRRMC policy.",
-    4: "Signal No. 4 in effect: all levels automatically suspended; this is a high-end typhoon warning.",
-    5: "Signal No. 5 in effect: all levels automatically suspended; catastrophic winds expected.",
-}
+# Policy note, not an ML-derived probability. DepEd Order No. 37, s. 2022
+# applies one rule to every TCWS level (see module docstring).
+AUTOMATIC_SUSPENSION_NOTE = (
+    "Signal No. {signal} in effect: in-person and online classes from Kindergarten to Grade 12 "
+    "and ALS are automatically cancelled (DepEd Order No. 37, s. 2022). College classes follow "
+    "CHED/school announcements."
+)
 
 
 def automatic_suspension_note(signal: Optional[int]) -> Optional[str]:
     if signal is None:
         return None
-    return AUTOMATIC_SUSPENSION_NOTE.get(signal, f"Signal No. {signal} in effect.")
+    if 1 <= signal <= 5:
+        return AUTOMATIC_SUSPENSION_NOTE.format(signal=signal)
+    return f"Signal No. {signal} in effect."
